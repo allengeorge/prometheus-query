@@ -1,0 +1,15 @@
+[package]
+name = "prometheus-query"
+version = "0.1.0"
+authors = ["Allen George <allen.george@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+futures-preview = { version = "0.3.0-alpha.13", features = ["compat"] }
+futures-util-preview = { version = "0.3.0-alpha.13"}
+hyper = "0.12"
+http = "0.1"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+url = "1.7"
