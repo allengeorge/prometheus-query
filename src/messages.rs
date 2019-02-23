@@ -132,9 +132,9 @@ impl<'de> Deserialize<'de> for Sample {
                     PROM_INFINITY => std::f64::INFINITY,
                     PROM_NEGATIVE_INFINITY => std::f64::NEG_INFINITY,
                     PROM_NAN => std::f64::NAN,
-                    _ => value.parse::<f64>().map_err(|_| {
-                        de::Error::invalid_value(Unexpected::Str(value), &self)
-                    })?,
+                    _ => value
+                        .parse::<f64>()
+                        .map_err(|_| de::Error::invalid_value(Unexpected::Str(value), &self))?,
                 };
 
                 Ok(Sample { epoch, value })
@@ -210,10 +210,11 @@ impl Serialize for StringSample {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::messages::{
         Data, Instant, Metric, QueryError, QueryResult, QuerySuccess, Range, Sample, StringSample,
     };
-    use std::collections::HashMap;
 
     #[test]
     fn should_deserialize_json_error() -> Result<(), std::io::Error> {

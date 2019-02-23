@@ -15,5 +15,11 @@
 #![feature(custom_attribute)]
 #![feature(futures_api, async_await, await_macro)]
 
-//pub mod client;
+pub use client::PromClient;
+pub use error::Error;
+
+mod client;
+mod error;
 pub mod messages;
+
+pub type Result = std::result::Result<messages::QueryResult, Error>;
