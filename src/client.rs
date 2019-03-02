@@ -37,6 +37,11 @@ pub struct PromClient<T: hyper::client::connect::Connect + 'static> {
     url: Url,
 }
 
+pub enum Step {
+    Seconds(f64),
+    Duration(Duration)
+}
+
 impl PromClient<HyperHttpsConnector> {
     pub fn new_https(
         endpoint: &str,
@@ -79,13 +84,48 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         }
         Uri::from_str(u.as_str()).map_err(From::from)
     }
+
+    pub async fn range_query(&mut self, query: String, start: DateTime<Utc>, end: DateTime<Utc>, step: Step, timeout: Option<Duration>) -> Result {
+        let u = self.range_query_url(query, start, end, step, timeout)?;
+        let resp = await!(self.client.get(u).compat())?;
+        let body = await!(resp.into_body().concat2().compat())?;
+        serde_json::from_slice::<QueryResult>(&body).map_err(From::from)
+    }
+
+    fn range_query_url(&mut self, query: String, start: DateTime<Utc>, end: DateTime<Utc>, step: Step, timeout: Option<Duration>) -> std::result::Result<Uri, Error> {
+        let mut u = self.url.clone().join("/api/v1/query_range")?;
+
+        {
+            let mut serializer = u.query_pairs_mut();
+
+            serializer.append_pair("query", &query);
+
+            let start = start.to_rfc3339().to_string();
+            serializer.append_pair("start", &start);
+
+            let end = end.to_rfc3339().to_string();
+            serializer.append_pair("end", &end);
+
+            let step: String = match step {
+                Step::Seconds(f) => f.to_string(),
+                Step::Duration(d) => format!("{}s", d.as_secs().to_string()),
+            };
+            serializer.append_pair("step", &step);
+
+            if let Some(t) = timeout {
+                serializer.append_pair("timeout", &t.as_secs().to_string());
+            }
+        }
+
+        Uri::from_str(u.as_str()).map_err(From::from)
+    }
+
+    pub async fn series(&mut self, selectors: Vec<String>, start: DateTime<Utc>, end: DateTime<Utc>) -> Result {
+        // let u = series_url(selectors, start, end)?;
+        unimplemented!()
+    }
 }
 
-//fn range_query() -> impl Future {
-//    unimplemented!()
-//}
-//
-//fn series() -> impl Future {}
 //
 //fn label_names() -> impl Future {}
 //

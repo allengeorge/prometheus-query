@@ -32,17 +32,17 @@ fn main() -> Result<(), std::io::Error> {
     let query_timeout = matches.value_of("timeout");
 
     if let Some(matches) = matches.subcommand_matches("instant") {
-        let query_string = matches.value_of("QUERY").unwrap().to_owned();
+        let query = matches.value_of("QUERY").unwrap().to_owned();
         let at = matches.value_of("at");
         tokio::run({
             instant_query(
                 hostname,
-                query_string,
+                query,
                 at.map(|v| v.to_owned()),
                 query_timeout.map(|v| v.to_owned()),
             )
             .map(|r| {
-                dbg!(&r);
+                println!("{:#?}", &r);
                 Ok(())
             })
             .boxed()
@@ -94,9 +94,9 @@ fn cli<'a, 'b>() -> App<'a, 'b> {
 
 async fn instant_query(
     hostname: String,
-    query_string: String,
+    query: String,
     at: Option<String>,
-    timeout: Option<String>,
+    query_timeout: Option<String>,
 ) -> Result<QueryResult, Box<dyn std::error::Error + 'static>> {
     let at = if let Some(v) = at {
         let v = v.parse::<i64>()?;
@@ -105,7 +105,7 @@ async fn instant_query(
     } else {
         None
     };
-    let timeout = if let Some(v) = timeout {
+    let query_timeout = if let Some(v) = query_timeout {
         let v = v.parse::<u64>()?;
         Some(Duration::new(v, 0))
     } else {
@@ -113,6 +113,6 @@ async fn instant_query(
     };
 
     let mut p = PromClient::new_https(&hostname)?;
-    let v = await!(p.instant_query(query_string, at, timeout));
+    let v = await!(p.instant_query(query, at, query_timeout));
     v.map_err(From::from)
 }
