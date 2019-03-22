@@ -17,6 +17,7 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::Display;
 use std::str::FromStr;
+use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset};
 use serde::{
@@ -33,6 +34,11 @@ const PROM_INFINITY: &str = "Inf";
 const PROM_NEGATIVE_INFINITY: &str = "-Inf";
 
 const PROM_NAN: &str = "NaN";
+
+pub enum Step {
+    Seconds(f64),
+    Duration(Duration),
+}
 
 // FIXME: use FromStr to ToStr
 
@@ -403,7 +409,7 @@ mod tests {
     use chrono::{DateTime, FixedOffset};
     use url::Url;
 
-    use crate::messages::{
+    use crate::types::{
         ActiveTarget, AlertManager, AlertManagers, Data, DroppedTarget, Expression, Instant,
         Metric, QueryError, QueryResult, QuerySuccess, Range, Sample, StringSample, TargetHealth,
         Targets,
@@ -989,7 +995,10 @@ mod tests {
         "#;
 
         let mut flags: HashMap<String, String> = HashMap::new();
-        flags.insert("alertmanager.notification-queue-capacity".to_owned(), "10000".to_owned());
+        flags.insert(
+            "alertmanager.notification-queue-capacity".to_owned(),
+            "10000".to_owned(),
+        );
         flags.insert("alertmanager.timeout".to_owned(), "10s".to_owned());
         flags.insert("log.level".to_owned(), "info".to_owned());
         flags.insert("query.lookback-delta".to_owned(), "5m".to_owned());

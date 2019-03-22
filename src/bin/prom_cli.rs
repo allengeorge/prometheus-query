@@ -22,7 +22,7 @@ use clap::{App, AppSettings, Arg, SubCommand};
 use futures::{FutureExt, TryFutureExt};
 use tokio;
 
-use prometheus_query::{messages::QueryResult, PromClient};
+use prometheus_query::{types::QueryResult, PromClient};
 
 fn main() -> Result<(), std::io::Error> {
     let app = cli();

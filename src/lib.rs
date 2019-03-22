@@ -20,6 +20,6 @@ pub use error::Error;
 
 mod client;
 mod error;
-pub mod messages;
+pub mod types;
 
-pub type Result = std::result::Result<messages::QueryResult, Error>;
+pub type Result = std::result::Result<types::QueryResult, Error>;
