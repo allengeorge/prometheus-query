@@ -4,7 +4,10 @@ version = "0.1.0"
 authors = ["Allen George <allen.george@gmail.com>"]
 edition = "2018"
 description = "Prometheus HTTP query client"
+repository = "https://github.com/allengeorge/prometheus-query/"
 license = "Apache-2.0"
+readme = "README.md"
+keywords = ["prometheus", "metrics"]
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
