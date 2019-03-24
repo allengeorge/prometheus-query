@@ -21,8 +21,7 @@ use futures::compat::Future01CompatExt;
 use futures_stable::Stream;
 use http::Uri;
 use hyper::client::HttpConnector;
-use hyper::Body;
-use hyper::Client;
+use hyper::{Body, Client, Request};
 use hyper_tls::HttpsConnector;
 use serde_json;
 use url::Url;
@@ -34,18 +33,21 @@ pub type HyperHttpsConnector = HttpsConnector<HttpConnector>;
 
 pub struct PromClient<T: hyper::client::connect::Connect + 'static> {
     client: Client<T, Body>,
-    url: Url,
+    hostname: Url,
+    query_timeout: Option<Duration>,
 }
 
 impl PromClient<HyperHttpsConnector> {
     pub fn new_https(
-        endpoint: &str,
+        hostname: &str,
+        query_timeout: Option<Duration>,
     ) -> std::result::Result<PromClient<HyperHttpsConnector>, Error> {
-        let url = Url::from_str(endpoint)?;
+        let hostname = Url::from_str(hostname)?;
         let https = HttpsConnector::new(4)?;
         Ok(PromClient {
             client: Client::builder().keep_alive(true).build(https),
-            url,
+            hostname,
+            query_timeout,
         })
     }
 }
@@ -55,10 +57,9 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         &mut self,
         query: String, // FIXME: turn into &str
         at: Option<DateTime<Utc>>,
-        query_timeout: Option<Duration>,
     ) -> Result {
         // interesting: when there were problems with the await macro it flagged the wrong line
-        let u = self.instant_query_uri(&query, at, query_timeout)?;
+        let u = self.instant_query_uri(&query, at)?;
         await!(self.make_prometheus_api_call(u))
     }
 
@@ -66,14 +67,14 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         &self,
         query: &str,
         at: Option<DateTime<Utc>>,
-        query_timeout: Option<Duration>,
     ) -> std::result::Result<Uri, Error> {
-        let mut u = self.url.clone().join("/api/v1/query")?;
+        let mut u = self.hostname.clone().join("/api/v1/query")?;
         {
             let mut serializer = u.query_pairs_mut();
             serializer.append_pair("query", query);
             at.map(|t| serializer.append_pair("time", t.to_rfc3339().as_str()));
-            query_timeout.map(|d| serializer.append_pair("timeout", &d.as_secs().to_string()));
+            self.query_timeout
+                .map(|d| serializer.append_pair("timeout", &d.as_secs().to_string()));
         }
         Uri::from_str(u.as_str()).map_err(From::from)
     }
@@ -84,9 +85,8 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
         step: Step,
-        timeout: Option<Duration>,
     ) -> Result {
-        let u = self.range_query_uri(query, start, end, step, timeout)?;
+        let u = self.range_query_uri(query, start, end, step)?;
         await!(self.make_prometheus_api_call(u))
     }
 
@@ -96,9 +96,8 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
         step: Step,
-        timeout: Option<Duration>,
     ) -> std::result::Result<Uri, Error> {
-        let mut u = self.url.clone().join("/api/v1/query_range")?;
+        let mut u = self.hostname.clone().join("/api/v1/query_range")?;
 
         {
             let mut serializer = u.query_pairs_mut();
@@ -117,7 +116,7 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
             };
             serializer.append_pair("step", &step);
 
-            if let Some(t) = timeout {
+            if let Some(t) = self.query_timeout {
                 serializer.append_pair("timeout", &t.as_secs().to_string());
             }
         }
@@ -141,7 +140,7 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> std::result::Result<Uri, Error> {
-        let mut u = self.url.clone().join("/api/v1/series")?;
+        let mut u = self.hostname.clone().join("/api/v1/series")?;
 
         {
             let mut serializer = u.query_pairs_mut();
@@ -155,6 +154,10 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
 
             let end = end.to_rfc3339().to_string();
             serializer.append_pair("end", &end);
+
+            if let Some(t) = self.query_timeout {
+                serializer.append_pair("timeout", &t.as_secs().to_string());
+            }
         }
 
         Uri::from_str(u.as_str()).map_err(From::from)
@@ -166,7 +169,7 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
     }
 
     fn label_names_uri(&self) -> std::result::Result<Uri, Error> {
-        let u = self.url.clone().join("/api/v1/labels")?;
+        let u = self.hostname.clone().join("/api/v1/labels")?;
         Uri::from_str(u.as_str()).map_err(From::from)
     }
 
@@ -177,7 +180,7 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
 
     fn label_values_uri(&self, label_name: String) -> std::result::Result<Uri, Error> {
         let path = format!("/api/v1/{}/values", label_name);
-        let u = self.url.clone().join(&path)?;
+        let u = self.hostname.clone().join(&path)?;
         Uri::from_str(u.as_str()).map_err(From::from)
     }
 
@@ -193,7 +196,7 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
     }
 
     fn targets_uri(&self) -> std::result::Result<Uri, Error> {
-        let u = self.url.clone().join("/api/v1/targets")?;
+        let u = self.hostname.clone().join("/api/v1/targets")?;
         Uri::from_str(u.as_str()).map_err(From::from)
     }
 
@@ -203,7 +206,7 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
     }
 
     fn alert_managers_uri(&self) -> std::result::Result<Uri, Error> {
-        let u = self.url.clone().join("/api/v1/alertmanagers")?;
+        let u = self.hostname.clone().join("/api/v1/alertmanagers")?;
         Uri::from_str(u.as_str()).map_err(From::from)
     }
 
@@ -213,14 +216,62 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
     }
 
     fn flags_uri(&self) -> std::result::Result<Uri, Error> {
-        let u = self.url.clone().join("/api/v1/flags")?;
+        let u = self.hostname.clone().join("/api/v1/flags")?;
+        Uri::from_str(u.as_str()).map_err(From::from)
+    }
+
+    pub async fn delete_series(
+        &mut self,
+        series: Vec<String>,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+    ) -> Result {
+        let u = self.delete_series_uri(series, start, end)?;
+
+        let post = Request::post(u).body(Body::empty())?;
+        let resp = await!(self.client.request(post).compat())?;
+        let body = await!(resp.into_body().concat2().compat())?;
+        serde_json::from_slice::<QueryResult>(&body).map_err(From::from)
+    }
+
+    fn delete_series_uri(
+        &self,
+        series: Vec<String>,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+    ) -> std::result::Result<Uri, Error> {
+        let mut u = self
+            .hostname
+            .clone()
+            .join("/api/v1/admin/tsdb/delete_series")?;
+
+        {
+            let mut serializer = u.query_pairs_mut();
+
+            for s in series {
+                serializer.append_pair("match[]", &s);
+            }
+
+            if let Some(start) = start {
+                let start = start.to_rfc3339().to_string();
+                serializer.append_pair("start", &start);
+            }
+
+            if let Some(end) = end {
+                let end = end.to_rfc3339().to_string();
+                serializer.append_pair("end", &end);
+            }
+
+            if let Some(t) = self.query_timeout {
+                serializer.append_pair("timeout", &t.as_secs().to_string());
+            }
+        }
+
         Uri::from_str(u.as_str()).map_err(From::from)
     }
 }
 
 //fn config() -> impl Future {}
 //fn snapshot() -> impl Future {}
-//
-//fn delete_series() -> impl Future {}
 //
 //fn clean_tombstones() -> impl Future {}

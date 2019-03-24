@@ -18,6 +18,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
+use http;
 use http::uri;
 use hyper;
 use native_tls;
@@ -79,6 +80,14 @@ impl From<uri::InvalidUri> for Error {
 
 impl From<native_tls::Error> for Error {
     fn from(e: native_tls::Error) -> Self {
+        Error {
+            inner: Some(Box::new(e)),
+        }
+    }
+}
+
+impl From<http::Error> for Error {
+    fn from(e: http::Error) -> Self {
         Error {
             inner: Some(Box::new(e)),
         }

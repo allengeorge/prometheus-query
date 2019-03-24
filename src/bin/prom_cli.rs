@@ -17,7 +17,7 @@
 use std::result::Result;
 use std::time::Duration;
 
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use clap::{App, AppSettings, Arg, SubCommand};
 use futures::{FutureExt, TryFutureExt};
 use tokio;
@@ -39,6 +39,29 @@ fn main() -> Result<(), std::io::Error> {
                 hostname,
                 query,
                 at.map(|v| v.to_owned()),
+                query_timeout.map(|v| v.to_owned()),
+            )
+            .map(|r| {
+                println!("{:#?}", &r);
+                Ok(())
+            })
+            .boxed()
+            .compat()
+        });
+    } else if let Some(matches) = matches.subcommand_matches("delete") {
+        let series = matches
+            .values_of("SERIES")
+            .unwrap()
+            .map(|s| s.to_owned())
+            .collect::<Vec<String>>();
+        let start = matches.value_of("start");
+        let end = matches.value_of("end");
+        tokio::run({
+            delete_series(
+                hostname,
+                series,
+                start.map(|v| v.to_owned()),
+                end.map(|v| v.to_owned()),
                 query_timeout.map(|v| v.to_owned()),
             )
             .map(|r| {
@@ -90,6 +113,32 @@ fn cli<'a, 'b>() -> App<'a, 'b> {
                         .takes_value(true),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("delete")
+                .about("Delete series")
+                .setting(AppSettings::ArgRequiredElseHelp)
+                .arg(
+                    Arg::with_name("SERIES")
+                        .help("Series")
+                        .required(true)
+                        .min_values(1)
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("start")
+                        .help("Start time from which to delete series data")
+                        .short("s")
+                        .long("start")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("end")
+                        .help("End time from to delete series data")
+                        .short("e")
+                        .long("end")
+                        .takes_value(true),
+                ),
+        )
 }
 
 async fn instant_query(
@@ -98,13 +147,7 @@ async fn instant_query(
     at: Option<String>,
     query_timeout: Option<String>,
 ) -> Result<QueryResult, Box<dyn std::error::Error + 'static>> {
-    let at = if let Some(v) = at {
-        let v = v.parse::<i64>()?;
-        let v = Utc.timestamp(v, 0);
-        Some(v)
-    } else {
-        None
-    };
+    let at = date_time(at)?;
     let query_timeout = if let Some(v) = query_timeout {
         let v = v.parse::<u64>()?;
         Some(Duration::new(v, 0))
@@ -112,7 +155,40 @@ async fn instant_query(
         None
     };
 
-    let mut p = PromClient::new_https(&hostname)?;
-    let v = await!(p.instant_query(query, at, query_timeout));
+    let mut p = PromClient::new_https(&hostname, query_timeout)?;
+    let v = await!(p.instant_query(query, at));
     v.map_err(From::from)
+}
+
+async fn delete_series(
+    hostname: String,
+    series: Vec<String>,
+    start: Option<String>,
+    end: Option<String>,
+    query_timeout: Option<String>,
+) -> Result<QueryResult, Box<dyn std::error::Error + 'static>> {
+    let start = date_time(start)?;
+    let end = date_time(end)?;
+    let query_timeout = if let Some(v) = query_timeout {
+        let v = v.parse::<u64>()?;
+        Some(Duration::new(v, 0))
+    } else {
+        None
+    };
+
+    let mut p = PromClient::new_https(&hostname, query_timeout)?;
+    let v = await!(p.delete_series(series, start, end));
+    v.map_err(From::from)
+}
+
+fn date_time(
+    dt: Option<String>,
+) -> Result<Option<DateTime<Utc>>, Box<dyn std::error::Error + 'static>> {
+    if let Some(v) = dt {
+        let v = v.parse::<i64>()?;
+        let v = Utc.timestamp(v, 0);
+        Ok(Some(v))
+    } else {
+        Ok(None)
+    }
 }

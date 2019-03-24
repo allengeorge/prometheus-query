@@ -51,7 +51,9 @@ pub enum QueryResult {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct QuerySuccess {
-    pub data: Data,
+    // FIXME:
+    #[serde(default)]
+    pub data: Option<Data>,
     #[serde(default)]
     pub warnings: Vec<String>,
 }
@@ -532,10 +534,10 @@ mod tests {
         let res = serde_json::from_str::<QueryResult>(j)?;
         assert_eq!(
             QueryResult::Success(QuerySuccess {
-                data: Data::Expression(Expression::Scalar(Sample {
+                data: Some(Data::Expression(Expression::Scalar(Sample {
                     epoch: 1435781451.781,
                     value: 1 as f64,
-                })),
+                }))),
                 warnings: Vec::new(),
             }),
             res
@@ -560,10 +562,10 @@ mod tests {
         let res = serde_json::from_str::<QueryResult>(j)?;
         assert_eq!(
             QueryResult::Success(QuerySuccess {
-                data: Data::Expression(Expression::Scalar(Sample {
+                data: Some(Data::Expression(Expression::Scalar(Sample {
                     epoch: 1435781451.781,
                     value: 1 as f64,
-                })),
+                }))),
                 warnings: vec!["You timed out, foo".to_owned()],
             }),
             res
@@ -587,10 +589,10 @@ mod tests {
         let res = serde_json::from_str::<QueryResult>(j)?;
         assert_eq!(
             QueryResult::Success(QuerySuccess {
-                data: Data::Expression(Expression::String(StringSample {
+                data: Some(Data::Expression(Expression::String(StringSample {
                     epoch: 1435781451.781,
                     value: "foo".to_owned(),
-                })),
+                }))),
                 warnings: Vec::new(),
             }),
             res
@@ -641,7 +643,7 @@ mod tests {
         let res = serde_json::from_str::<QueryResult>(j)?;
         assert_eq!(
             QueryResult::Success(QuerySuccess {
-                data: Data::Expression(Expression::Instant(vec!(
+                data: Some(Data::Expression(Expression::Instant(vec!(
                     Instant {
                         metric: Metric {
                             labels: metric_1.clone(),
@@ -660,7 +662,7 @@ mod tests {
                             value: 0 as f64,
                         },
                     },
-                ))),
+                )))),
                 warnings: Vec::new(),
             }),
             res
@@ -719,7 +721,7 @@ mod tests {
         let res = serde_json::from_str::<QueryResult>(j)?;
         assert_eq!(
             QueryResult::Success(QuerySuccess {
-                data: Data::Expression(Expression::Range(vec!(
+                data: Some(Data::Expression(Expression::Range(vec!(
                     Range {
                         metric: Metric {
                             labels: metric_1.clone(),
@@ -758,7 +760,7 @@ mod tests {
                             },
                         ),
                     },
-                ))),
+                )))),
                 warnings: Vec::new(),
             }),
             res
@@ -801,7 +803,7 @@ mod tests {
         let res = serde_json::from_str::<QueryResult>(j)?;
         assert_eq!(
             QueryResult::Success(QuerySuccess {
-                data: Data::LabelsOrValues(vec![
+                data: Some(Data::LabelsOrValues(vec![
                     "__name__".to_owned(),
                     "call".to_owned(),
                     "code".to_owned(),
@@ -823,7 +825,7 @@ mod tests {
                     "scrape_job".to_owned(),
                     "slice".to_owned(),
                     "version".to_owned(),
-                ],),
+                ],)),
                 warnings: Vec::new(),
             }),
             res
@@ -847,7 +849,10 @@ mod tests {
         let res = serde_json::from_str::<QueryResult>(j)?;
         assert_eq!(
             QueryResult::Success(QuerySuccess {
-                data: Data::LabelsOrValues(vec!["node".to_owned(), "prometheus".to_owned(),],),
+                data: Some(Data::LabelsOrValues(vec![
+                    "node".to_owned(),
+                    "prometheus".to_owned(),
+                ],)),
                 warnings: Vec::new(),
             }),
             res
@@ -920,7 +925,7 @@ mod tests {
         assert_eq!(
             res,
             QueryResult::Success(QuerySuccess {
-                data: Data::Targets(Targets {
+                data: Some(Data::Targets(Targets {
                     active: vec![ActiveTarget {
                         discovered_labels: active_discovered_labels,
                         labels: active_labels,
@@ -932,7 +937,7 @@ mod tests {
                     dropped: vec![DroppedTarget {
                         discovered_labels: dropped_discovered_labels
                     },],
-                }),
+                })),
                 warnings: Vec::new(),
             })
         );
@@ -963,14 +968,14 @@ mod tests {
         let res = serde_json::from_str::<QueryResult>(j)?;
         assert_eq!(
             QueryResult::Success(QuerySuccess {
-                data: Data::AlertManagers(AlertManagers {
+                data: Some(Data::AlertManagers(AlertManagers {
                     active: vec![AlertManager {
                         url: Url::parse("http://127.0.0.1:9090/api/v1/alerts").unwrap(),
                     },],
                     dropped: vec![AlertManager {
                         url: Url::parse("http://127.0.0.1:9093/api/v1/alerts").unwrap(),
                     },],
-                }),
+                })),
                 warnings: Vec::new(),
             }),
             res
