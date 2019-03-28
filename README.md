@@ -1,9 +1,7 @@
 # prometheus-query
 
-## Prometheus HTTP Client
-
-Asynchronous Prometheus client for the Prometheus V1 HTTP API.
-The client is built using **experimental** futures-0.3 and async/await.
+Asynchronous Prometheus library for the Prometheus V1 HTTP API.
+This library is **nightly-only**, and built using **experimental** `futures-0.3` and `async`/`await`.
 
 ## Status
 
@@ -15,7 +13,7 @@ or unit/integration tests. It has two components:
 
 ## Queries
 
-The following query types are supported:
+The following query types are supported by the library:
 
 - [x] Instant
 - [x] Range
@@ -31,8 +29,26 @@ The following query types are supported:
 
 ## Commands
 
-The following commands are supported:
+The following commands are supported by the library:
 
+- [x] Delete series
+- [ ] Snapshot
+- [ ] Clean tombstones
+
+## CLI
+
+The CLI exposes the following queries/commands:
+
+- [x] Instant
+- [ ] Range
+- [ ] Series 
+- [ ] Label names
+- [ ] Label values
+- [ ] Targets
+- [ ] Alertmanagers
+- [ ] Status
+- [ ] Config
+- [ ] Flags
 - [x] Delete series
 - [ ] Snapshot
 - [ ] Clean tombstones
