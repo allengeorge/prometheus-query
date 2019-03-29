@@ -15,11 +15,9 @@
 #![feature(custom_attribute)]
 #![feature(futures_api, async_await, await_macro)]
 
-pub use client::PromClient;
-pub use error::Error;
+pub use client::{PromClient, Step};
+pub use error::{Error, Result};
 
 mod client;
 mod error;
-pub mod types;
-
-pub type Result = std::result::Result<types::QueryResult, Error>;
+pub mod messages;

@@ -14,10 +14,10 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::fmt;
-use std::fmt::Display;
+use std::fmt::Result as FmtResult;
+use std::fmt::{Display, Formatter};
+use std::result::Result as StdResult;
 use std::str::FromStr;
-use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset};
 use serde::{
@@ -35,23 +35,15 @@ const PROM_NEGATIVE_INFINITY: &str = "-Inf";
 
 const PROM_NAN: &str = "NaN";
 
-pub enum Step {
-    Seconds(f64),
-    Duration(Duration),
-}
-
-// FIXME: use FromStr to ToStr
-
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase", tag = "status")]
-pub enum QueryResult {
-    Success(QuerySuccess),
-    Error(QueryError),
+pub enum ApiResult {
+    ApiOk(ApiOk),
+    ApiErr(ApiErr),
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct QuerySuccess {
-    // FIXME:
+pub struct ApiOk {
     #[serde(default)]
     pub data: Option<Data>,
     #[serde(default)]
@@ -59,7 +51,7 @@ pub struct QuerySuccess {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct QueryError {
+pub struct ApiErr {
     #[serde(rename = "errorType")]
     pub error_type: String,
     #[serde(rename = "error")]
@@ -70,10 +62,10 @@ pub struct QueryError {
     pub warnings: Vec<String>,
 }
 
-impl Error for QueryError {}
+impl Error for ApiErr {}
 
-impl Display for QueryError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for ApiErr {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         f.write_str(&self.error_message)
     }
 }
@@ -129,7 +121,7 @@ pub struct Sample {
 }
 
 impl<'de> Deserialize<'de> for Sample {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> StdResult<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -138,11 +130,11 @@ impl<'de> Deserialize<'de> for Sample {
         impl<'de> Visitor<'de> for VisitorImpl {
             type Value = Sample;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut Formatter) -> FmtResult {
                 formatter.write_str("Prometheus sample")
             }
 
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            fn visit_seq<A>(self, mut seq: A) -> StdResult<Self::Value, A::Error>
             where
                 A: SeqAccess<'de>,
             {
@@ -171,7 +163,7 @@ impl<'de> Deserialize<'de> for Sample {
 }
 
 impl Serialize for Sample {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> StdResult<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -189,7 +181,7 @@ pub struct StringSample {
 }
 
 impl<'de> Deserialize<'de> for StringSample {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> StdResult<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -198,11 +190,11 @@ impl<'de> Deserialize<'de> for StringSample {
         impl<'de> Visitor<'de> for VisitorImpl {
             type Value = StringSample;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut Formatter) -> FmtResult {
                 formatter.write_str("Prometheus string sample")
             }
 
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            fn visit_seq<A>(self, mut seq: A) -> StdResult<Self::Value, A::Error>
             where
                 A: SeqAccess<'de>,
             {
@@ -222,7 +214,7 @@ impl<'de> Deserialize<'de> for StringSample {
 }
 
 impl Serialize for StringSample {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> StdResult<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -273,7 +265,7 @@ pub enum TargetHealth {
     Unknown,
 }
 
-fn empty_string_is_none<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+fn empty_string_is_none<'de, D: Deserializer<'de>>(d: D) -> StdResult<Option<String>, D::Error> {
     let o: Option<String> = Option::deserialize(d)?;
     Ok(o.filter(|s| !s.is_empty()))
 }
@@ -281,7 +273,7 @@ fn empty_string_is_none<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String
 fn none_to_empty_string<S: Serializer>(
     s: &Option<String>,
     serializer: S,
-) -> Result<S::Ok, S::Error> {
+) -> StdResult<S::Ok, S::Error> {
     if let Some(v) = s {
         serializer.serialize_str(&v)
     } else {
@@ -291,7 +283,7 @@ fn none_to_empty_string<S: Serializer>(
 
 fn rfc3339_to_date_time<'de, D: Deserializer<'de>>(
     d: D,
-) -> Result<DateTime<FixedOffset>, D::Error> {
+) -> StdResult<DateTime<FixedOffset>, D::Error> {
     let s = String::deserialize(d)?;
     DateTime::from_str(&s).map_err(de::Error::custom)
 }
@@ -299,11 +291,11 @@ fn rfc3339_to_date_time<'de, D: Deserializer<'de>>(
 fn date_time_to_rfc3339<S: Serializer>(
     v: &DateTime<FixedOffset>,
     serializer: S,
-) -> Result<S::Ok, S::Error> {
+) -> StdResult<S::Ok, S::Error> {
     serializer.serialize_str(&v.to_rfc3339())
 }
 
-fn deserialize_health<'de, D: Deserializer<'de>>(d: D) -> Result<TargetHealth, D::Error> {
+fn deserialize_health<'de, D: Deserializer<'de>>(d: D) -> StdResult<TargetHealth, D::Error> {
     let o: Option<String> = Option::deserialize(d)?;
     Ok(o.map_or(TargetHealth::Unknown, |s| match s.as_str() {
         "up" => TargetHealth::Up,
@@ -315,7 +307,7 @@ fn deserialize_health<'de, D: Deserializer<'de>>(d: D) -> Result<TargetHealth, D
 fn serialize_health<S: Serializer>(
     health: &TargetHealth,
     serializer: S,
-) -> Result<S::Ok, S::Error> {
+) -> StdResult<S::Ok, S::Error> {
     let value = match health {
         TargetHealth::Up => "up",
         TargetHealth::Down => "down",
@@ -346,7 +338,7 @@ pub struct AlertManager {
 }
 
 impl<'de> Deserialize<'de> for AlertManager {
-    fn deserialize<D>(deserializer: D) -> Result<AlertManager, D::Error>
+    fn deserialize<D>(deserializer: D) -> StdResult<AlertManager, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -365,11 +357,11 @@ impl<'de> Deserialize<'de> for AlertManager {
         impl<'de> Visitor<'de> for VisitorImpl {
             type Value = AlertManager;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut Formatter) -> FmtResult {
                 formatter.write_str("AlertManager")
             }
 
-            fn visit_map<V>(self, mut map: V) -> Result<AlertManager, V::Error>
+            fn visit_map<V>(self, mut map: V) -> StdResult<AlertManager, V::Error>
             where
                 V: MapAccess<'de>,
             {
@@ -394,7 +386,7 @@ impl<'de> Deserialize<'de> for AlertManager {
 }
 
 impl Serialize for AlertManager {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> StdResult<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -411,14 +403,13 @@ mod tests {
     use chrono::{DateTime, FixedOffset};
     use url::Url;
 
-    use crate::types::{
-        ActiveTarget, AlertManager, AlertManagers, Data, DroppedTarget, Expression, Instant,
-        Metric, QueryError, QueryResult, QuerySuccess, Range, Sample, StringSample, TargetHealth,
-        Targets,
+    use crate::messages::{
+        ActiveTarget, AlertManager, AlertManagers, ApiErr, ApiOk, ApiResult, Data, DroppedTarget,
+        Expression, Instant, Metric, Range, Sample, StringSample, TargetHealth, Targets,
     };
 
     #[test]
-    fn should_deserialize_json_error() -> Result<(), std::io::Error> {
+    fn should_deserialize_json_error() -> StdResult<(), std::io::Error> {
         let j = r#"
         {
             "status": "error",
@@ -427,9 +418,9 @@ mod tests {
         }
         "#;
 
-        let res = serde_json::from_str::<QueryResult>(j)?;
+        let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
-            QueryResult::Error(QueryError {
+            ApiResult::ApiErr(ApiErr {
                 error_message: "Major".to_string(),
                 error_type: "Seriously Bad".to_string(),
                 data: None,
@@ -442,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn should_deserialize_json_error_with_instant_and_warnings() -> Result<(), std::io::Error> {
+    fn should_deserialize_json_error_with_instant_and_warnings() -> StdResult<(), std::io::Error> {
         let j = r#"
         {
             "status": "error",
@@ -486,9 +477,9 @@ mod tests {
         metric_2.insert("job".to_owned(), "node".to_owned());
         metric_2.insert("instance".to_owned(), "localhost:9100".to_owned());
 
-        let res = serde_json::from_str::<QueryResult>(j)?;
+        let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
-            QueryResult::Error(QueryError {
+            ApiResult::ApiErr(ApiErr {
                 error_type: "Weird".to_owned(),
                 error_message: "This is a strange error".to_owned(),
                 data: Some(Data::Expression(Expression::Instant(vec!(
@@ -520,7 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn should_deserialize_json_prom_scalar() -> Result<(), std::io::Error> {
+    fn should_deserialize_json_prom_scalar() -> StdResult<(), std::io::Error> {
         let j = r#"
         {
             "status": "success",
@@ -531,9 +522,9 @@ mod tests {
         }
         "#;
 
-        let res = serde_json::from_str::<QueryResult>(j)?;
+        let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
-            QueryResult::Success(QuerySuccess {
+            ApiResult::ApiOk(ApiOk {
                 data: Some(Data::Expression(Expression::Scalar(Sample {
                     epoch: 1435781451.781,
                     value: 1 as f64,
@@ -547,7 +538,7 @@ mod tests {
     }
 
     #[test]
-    fn should_deserialize_json_prom_scalar_with_warnings() -> Result<(), std::io::Error> {
+    fn should_deserialize_json_prom_scalar_with_warnings() -> StdResult<(), std::io::Error> {
         let j = r#"
         {
             "warnings": ["You timed out, foo"],
@@ -559,9 +550,9 @@ mod tests {
         }
         "#;
 
-        let res = serde_json::from_str::<QueryResult>(j)?;
+        let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
-            QueryResult::Success(QuerySuccess {
+            ApiResult::ApiOk(ApiOk {
                 data: Some(Data::Expression(Expression::Scalar(Sample {
                     epoch: 1435781451.781,
                     value: 1 as f64,
@@ -575,7 +566,7 @@ mod tests {
     }
 
     #[test]
-    fn should_deserialize_json_prom_string() -> Result<(), std::io::Error> {
+    fn should_deserialize_json_prom_string() -> StdResult<(), std::io::Error> {
         let j = r#"
         {
             "status": "success",
@@ -586,9 +577,9 @@ mod tests {
         }
         "#;
 
-        let res = serde_json::from_str::<QueryResult>(j)?;
+        let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
-            QueryResult::Success(QuerySuccess {
+            ApiResult::ApiOk(ApiOk {
                 data: Some(Data::Expression(Expression::String(StringSample {
                     epoch: 1435781451.781,
                     value: "foo".to_owned(),
@@ -602,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn should_deserialize_json_prom_vector() -> Result<(), std::io::Error> {
+    fn should_deserialize_json_prom_vector() -> StdResult<(), std::io::Error> {
         let j = r#"
         {
             "status" : "success",
@@ -640,9 +631,9 @@ mod tests {
         metric_2.insert("job".to_owned(), "node".to_owned());
         metric_2.insert("instance".to_owned(), "localhost:9100".to_owned());
 
-        let res = serde_json::from_str::<QueryResult>(j)?;
+        let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
-            QueryResult::Success(QuerySuccess {
+            ApiResult::ApiOk(ApiOk {
                 data: Some(Data::Expression(Expression::Instant(vec!(
                     Instant {
                         metric: Metric {
@@ -672,7 +663,7 @@ mod tests {
     }
 
     #[test]
-    fn should_deserialize_json_prom_matrix() -> Result<(), std::io::Error> {
+    fn should_deserialize_json_prom_matrix() -> StdResult<(), std::io::Error> {
         let j = r#"
         {
             "status" : "success",
@@ -718,9 +709,9 @@ mod tests {
         metric_2.insert("job".to_owned(), "node".to_owned());
         metric_2.insert("instance".to_owned(), "localhost:9091".to_owned());
 
-        let res = serde_json::from_str::<QueryResult>(j)?;
+        let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
-            QueryResult::Success(QuerySuccess {
+            ApiResult::ApiOk(ApiOk {
                 data: Some(Data::Expression(Expression::Range(vec!(
                     Range {
                         metric: Metric {
@@ -770,7 +761,7 @@ mod tests {
     }
 
     #[test]
-    fn should_deserialize_json_prom_labels() -> Result<(), std::io::Error> {
+    fn should_deserialize_json_prom_labels() -> StdResult<(), std::io::Error> {
         let j = r#"
         {
             "status" : "success",
@@ -800,9 +791,9 @@ mod tests {
         }
         "#;
 
-        let res = serde_json::from_str::<QueryResult>(j)?;
+        let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
-            QueryResult::Success(QuerySuccess {
+            ApiResult::ApiOk(ApiOk {
                 data: Some(Data::LabelsOrValues(vec![
                     "__name__".to_owned(),
                     "call".to_owned(),
@@ -835,7 +826,7 @@ mod tests {
     }
 
     #[test]
-    fn should_deserialize_json_prom_label_values() -> Result<(), std::io::Error> {
+    fn should_deserialize_json_prom_label_values() -> StdResult<(), std::io::Error> {
         let j = r#"
         {
             "status" : "success",
@@ -846,9 +837,9 @@ mod tests {
         }
         "#;
 
-        let res = serde_json::from_str::<QueryResult>(j)?;
+        let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
-            QueryResult::Success(QuerySuccess {
+            ApiResult::ApiOk(ApiOk {
                 data: Some(Data::LabelsOrValues(vec![
                     "node".to_owned(),
                     "prometheus".to_owned(),
@@ -862,7 +853,7 @@ mod tests {
     }
 
     #[test]
-    fn should_deserialize_json_prom_targets() -> Result<(), std::io::Error> {
+    fn should_deserialize_json_prom_targets() -> StdResult<(), std::io::Error> {
         let j = r#"
         {
             "status": "success",
@@ -921,10 +912,10 @@ mod tests {
         let last_scrape: DateTime<FixedOffset> =
             DateTime::parse_from_rfc3339("2017-01-17T15:07:44.723715405+01:00").unwrap();
 
-        let res = serde_json::from_str::<QueryResult>(j)?;
+        let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
             res,
-            QueryResult::Success(QuerySuccess {
+            ApiResult::ApiOk(ApiOk {
                 data: Some(Data::Targets(Targets {
                     active: vec![ActiveTarget {
                         discovered_labels: active_discovered_labels,
@@ -946,7 +937,7 @@ mod tests {
     }
 
     #[test]
-    fn should_deserialize_json_prom_alert_managers() -> Result<(), std::io::Error> {
+    fn should_deserialize_json_prom_alert_managers() -> StdResult<(), std::io::Error> {
         let j = r#"
         {
             "status": "success",
@@ -965,9 +956,9 @@ mod tests {
         }
         "#;
 
-        let res = serde_json::from_str::<QueryResult>(j)?;
+        let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
-            QueryResult::Success(QuerySuccess {
+            ApiResult::ApiOk(ApiOk {
                 data: Some(Data::AlertManagers(AlertManagers {
                     active: vec![AlertManager {
                         url: Url::parse("http://127.0.0.1:9090/api/v1/alerts").unwrap(),
@@ -985,7 +976,7 @@ mod tests {
     }
 
     #[test]
-    fn should_deserialize_json_prom_flags() -> Result<(), std::io::Error> {
+    fn should_deserialize_json_prom_flags() -> StdResult<(), std::io::Error> {
         let j = r#"
         {
             "status": "success",
@@ -1010,10 +1001,10 @@ mod tests {
         flags.insert("query.max-concurrency".to_owned(), "20".to_owned());
         let flags = flags;
 
-        let res = serde_json::from_str::<QueryResult>(j)?;
+        let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
-            QueryResult::Success(QuerySuccess {
-                data: Data::Flags(flags),
+            ApiResult::ApiOk(ApiOk {
+                data: Some(Data::Flags(flags)),
                 warnings: Vec::new(),
             }),
             res

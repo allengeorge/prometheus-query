@@ -25,7 +25,12 @@ use native_tls;
 use serde_json;
 use url;
 
-// FIXME: use a proper return type
+pub enum ErrorKind {
+    Http,
+    Json,
+    Other,
+}
+
 #[derive(Debug)]
 pub struct Error {
     inner: Option<Box<dyn std::error::Error>>,
@@ -93,3 +98,5 @@ impl From<http::Error> for Error {
         }
     }
 }
+
+pub type Result<T> = std::result::Result<T, Error>;

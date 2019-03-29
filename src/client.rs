@@ -26,8 +26,16 @@ use hyper_tls::HttpsConnector;
 use serde_json;
 use url::Url;
 
-use crate::types::{QueryResult, Step};
-use crate::{Error, Result};
+use crate::messages::ApiResult;
+use crate::Result;
+
+// TODO: query_timeout function
+
+// TODO: replace Step with plain duration
+pub enum Step {
+    Seconds(f64),
+    Duration(Duration),
+}
 
 pub type HyperHttpsConnector = HttpsConnector<HttpConnector>;
 
@@ -41,7 +49,7 @@ impl PromClient<HyperHttpsConnector> {
     pub fn new_https(
         hostname: &str,
         query_timeout: Option<Duration>,
-    ) -> std::result::Result<PromClient<HyperHttpsConnector>, Error> {
+    ) -> Result<PromClient<HyperHttpsConnector>> {
         let hostname = Url::from_str(hostname)?;
         let https = HttpsConnector::new(4)?;
         Ok(PromClient {
@@ -57,17 +65,13 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         &mut self,
         query: String, // FIXME: turn into &str
         at: Option<DateTime<Utc>>,
-    ) -> Result {
+    ) -> Result<ApiResult> {
         // interesting: when there were problems with the await macro it flagged the wrong line
         let u = self.instant_query_uri(&query, at)?;
         await!(self.make_prometheus_api_call(u))
     }
 
-    fn instant_query_uri(
-        &self,
-        query: &str,
-        at: Option<DateTime<Utc>>,
-    ) -> std::result::Result<Uri, Error> {
+    fn instant_query_uri(&self, query: &str, at: Option<DateTime<Utc>>) -> Result<Uri> {
         let mut u = self.hostname.clone().join("/api/v1/query")?;
         {
             let mut serializer = u.query_pairs_mut();
@@ -85,7 +89,7 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
         step: Step,
-    ) -> Result {
+    ) -> Result<ApiResult> {
         let u = self.range_query_uri(query, start, end, step)?;
         await!(self.make_prometheus_api_call(u))
     }
@@ -96,7 +100,7 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
         step: Step,
-    ) -> std::result::Result<Uri, Error> {
+    ) -> Result<Uri> {
         let mut u = self.hostname.clone().join("/api/v1/query_range")?;
 
         {
@@ -129,7 +133,7 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         selectors: Vec<String>,
         start: DateTime<Utc>,
         end: DateTime<Utc>,
-    ) -> Result {
+    ) -> Result<ApiResult> {
         let u = self.series_uri(selectors, start, end)?;
         await!(self.make_prometheus_api_call(u))
     }
@@ -139,7 +143,7 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         selectors: Vec<String>,
         start: DateTime<Utc>,
         end: DateTime<Utc>,
-    ) -> std::result::Result<Uri, Error> {
+    ) -> Result<Uri> {
         let mut u = self.hostname.clone().join("/api/v1/series")?;
 
         {
@@ -163,61 +167,41 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         Uri::from_str(u.as_str()).map_err(From::from)
     }
 
-    pub async fn label_names(&mut self) -> Result {
-        let u = self.label_names_uri()?;
-        await!(self.make_prometheus_api_call(u))
-    }
-
-    fn label_names_uri(&self) -> std::result::Result<Uri, Error> {
+    pub async fn label_names(&mut self) -> Result<ApiResult> {
         let u = self.hostname.clone().join("/api/v1/labels")?;
-        Uri::from_str(u.as_str()).map_err(From::from)
-    }
-
-    pub async fn label_values(&mut self, label_name: String) -> Result {
-        let u = self.label_values_uri(label_name)?;
+        let u = Uri::from_str(u.as_str())?;
         await!(self.make_prometheus_api_call(u))
     }
 
-    fn label_values_uri(&self, label_name: String) -> std::result::Result<Uri, Error> {
+    pub async fn label_values(&mut self, label_name: String) -> Result<ApiResult> {
         let path = format!("/api/v1/{}/values", label_name);
         let u = self.hostname.clone().join(&path)?;
-        Uri::from_str(u.as_str()).map_err(From::from)
+        let u = Uri::from_str(u.as_str())?;
+        await!(self.make_prometheus_api_call(u))
     }
 
-    async fn make_prometheus_api_call(&mut self, u: Uri) -> Result {
+    async fn make_prometheus_api_call(&mut self, u: Uri) -> Result<ApiResult> {
         let resp = await!(self.client.get(u).compat())?;
         let body = await!(resp.into_body().concat2().compat())?;
-        serde_json::from_slice::<QueryResult>(&body).map_err(From::from)
+        serde_json::from_slice::<ApiResult>(&body).map_err(From::from)
     }
 
-    pub async fn targets(&mut self) -> Result {
-        let u = self.targets_uri()?;
-        await!(self.make_prometheus_api_call(u))
-    }
-
-    fn targets_uri(&self) -> std::result::Result<Uri, Error> {
+    pub async fn targets(&mut self) -> Result<ApiResult> {
         let u = self.hostname.clone().join("/api/v1/targets")?;
-        Uri::from_str(u.as_str()).map_err(From::from)
-    }
-
-    pub async fn alert_managers(&mut self) -> Result {
-        let u = self.alert_managers_uri()?;
+        let u = Uri::from_str(u.as_str())?;
         await!(self.make_prometheus_api_call(u))
     }
 
-    fn alert_managers_uri(&self) -> std::result::Result<Uri, Error> {
+    pub async fn alert_managers(&mut self) -> Result<ApiResult> {
         let u = self.hostname.clone().join("/api/v1/alertmanagers")?;
-        Uri::from_str(u.as_str()).map_err(From::from)
-    }
-
-    pub async fn flags(&mut self) -> Result {
-        let u = self.flags_uri()?;
+        let u = Uri::from_str(u.as_str())?;
         await!(self.make_prometheus_api_call(u))
     }
 
-    fn flags_uri(&self) -> std::result::Result<Uri, Error> {
+    pub async fn flags(&mut self) -> Result<ApiResult> {
         let u = self.hostname.clone().join("/api/v1/flags")?;
-        Uri::from_str(u.as_str()).map_err(From::from)
+        let u = Uri::from_str(u.as_str())?;
+        await!(self.make_prometheus_api_call(u))
     }
 
     pub async fn delete_series(
@@ -225,13 +209,13 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         series: Vec<String>,
         start: Option<DateTime<Utc>>,
         end: Option<DateTime<Utc>>,
-    ) -> Result {
+    ) -> Result<ApiResult> {
         let u = self.delete_series_uri(series, start, end)?;
 
         let post = Request::post(u).body(Body::empty())?;
         let resp = await!(self.client.request(post).compat())?;
         let body = await!(resp.into_body().concat2().compat())?;
-        serde_json::from_slice::<QueryResult>(&body).map_err(From::from)
+        serde_json::from_slice::<ApiResult>(&body).map_err(From::from)
     }
 
     fn delete_series_uri(
@@ -239,7 +223,7 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         series: Vec<String>,
         start: Option<DateTime<Utc>>,
         end: Option<DateTime<Utc>>,
-    ) -> std::result::Result<Uri, Error> {
+    ) -> Result<Uri> {
         let mut u = self
             .hostname
             .clone()
@@ -269,9 +253,21 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
 
         Uri::from_str(u.as_str()).map_err(From::from)
     }
+
+    pub async fn clean_tombstones(&mut self) -> Result<ApiResult> {
+        let u = self
+            .hostname
+            .clone()
+            .join("/api/v1/admin/tsdb/clean_tombstones")?;
+        let u = Uri::from_str(u.as_str())?;
+
+        let post = Request::post(u).body(Body::empty())?;
+
+        let resp = await!(self.client.request(post).compat())?;
+        let body = await!(resp.into_body().concat2().compat())?;
+        serde_json::from_slice::<ApiResult>(&body).map_err(From::from)
+    }
 }
 
 //fn config() -> impl Future {}
 //fn snapshot() -> impl Future {}
-//
-//fn clean_tombstones() -> impl Future {}

@@ -14,7 +14,8 @@
 
 #![feature(async_await, await_macro, futures_api)]
 
-use std::result::Result;
+use std::error::Error as StdError;
+use std::result::Result as StdResult;
 use std::time::Duration;
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -22,7 +23,11 @@ use clap::{App, AppSettings, Arg, SubCommand};
 use futures::{FutureExt, TryFutureExt};
 use tokio;
 
-use prometheus_query::{types::QueryResult, PromClient};
+use prometheus_query::{messages::ApiResult, PromClient};
+
+// XXX: remember: if you accidentally return the wrong value from an async function
+// the compiler compares everything to that _wrong_ return value as opposed to the type
+// specified in the function signature
 
 fn main() -> Result<(), std::io::Error> {
     let app = cli();
@@ -146,7 +151,7 @@ async fn instant_query(
     query: String,
     at: Option<String>,
     query_timeout: Option<String>,
-) -> Result<QueryResult, Box<dyn std::error::Error + 'static>> {
+) -> StdResult<ApiResult, Box<StdError + 'static>> {
     let at = date_time(at)?;
     let query_timeout = if let Some(v) = query_timeout {
         let v = v.parse::<u64>()?;
@@ -166,7 +171,7 @@ async fn delete_series(
     start: Option<String>,
     end: Option<String>,
     query_timeout: Option<String>,
-) -> Result<QueryResult, Box<dyn std::error::Error + 'static>> {
+) -> StdResult<ApiResult, Box<StdError + 'static>> {
     let start = date_time(start)?;
     let end = date_time(end)?;
     let query_timeout = if let Some(v) = query_timeout {
@@ -181,9 +186,7 @@ async fn delete_series(
     v.map_err(From::from)
 }
 
-fn date_time(
-    dt: Option<String>,
-) -> Result<Option<DateTime<Utc>>, Box<dyn std::error::Error + 'static>> {
+fn date_time(dt: Option<String>) -> StdResult<Option<DateTime<Utc>>, Box<StdError + 'static>> {
     if let Some(v) = dt {
         let v = v.parse::<i64>()?;
         let v = Utc.timestamp(v, 0);
