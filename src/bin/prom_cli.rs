@@ -14,6 +14,7 @@
 
 #![feature(async_await, await_macro, futures_api)]
 
+use std::borrow::ToOwned;
 use std::error::Error as StdError;
 use std::result::Result as StdResult;
 use std::time::Duration;
@@ -43,8 +44,8 @@ fn main() -> Result<(), std::io::Error> {
             instant_query(
                 hostname,
                 query,
-                at.map(|v| v.to_owned()),
-                query_timeout.map(|v| v.to_owned()),
+                at.map(ToOwned::to_owned),
+                query_timeout.map(ToOwned::to_owned),
             )
             .map(|r| {
                 println!("{:#?}", &r);
@@ -57,7 +58,7 @@ fn main() -> Result<(), std::io::Error> {
         let series = matches
             .values_of("SERIES")
             .unwrap()
-            .map(|s| s.to_owned())
+            .map(ToOwned::to_owned)
             .collect::<Vec<String>>();
         let start = matches.value_of("start");
         let end = matches.value_of("end");
@@ -65,9 +66,9 @@ fn main() -> Result<(), std::io::Error> {
             delete_series(
                 hostname,
                 series,
-                start.map(|v| v.to_owned()),
-                end.map(|v| v.to_owned()),
-                query_timeout.map(|v| v.to_owned()),
+                start.map(ToOwned::to_owned),
+                end.map(ToOwned::to_owned),
+                query_timeout.map(ToOwned::to_owned),
             )
             .map(|r| {
                 println!("{:#?}", &r);

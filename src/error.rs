@@ -13,6 +13,8 @@
 // limitations under the License.
 
 use std::convert::From;
+use std::error::Error as StdError;
+use std::result::Result as StdResult;
 use std::{
     fmt,
     fmt::{Display, Formatter},
@@ -21,82 +23,117 @@ use std::{
 use http;
 use http::uri;
 use hyper;
-use native_tls;
 use serde_json;
 use url;
 
-pub enum ErrorKind {
-    Http,
-    Json,
-    Other,
-}
+/// Type alias for `Result<T, prometheus_query::Error>`
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub struct Error {
-    inner: Option<Box<dyn std::error::Error>>,
+    kind: ErrorKind,
+}
+
+#[derive(Debug)]
+pub enum ErrorKind {
+    InvalidHost {
+        url: String,
+        err: url::ParseError,
+    },
+    InvalidApiUrl {
+        url: String,
+        err: uri::InvalidUri,
+    },
+    Http {
+        err: hyper::Error,
+    },
+    CannotParseResponseJson {
+        // FIXME: add API call name
+        err: serde_json::Error,
+    },
+    Other(String),
+
+    /// Destructing should not be exhaustive.
+    ///
+    /// This enum may grow additional variants, so this makes sure clients
+    /// won't break as additional variants are added.
+    #[doc(hidden)]
+    __Nonexhaustive,
 }
 
 impl std::error::Error for Error {
-    fn cause(&self) -> Option<&dyn std::error::Error> {
-        self.inner.as_ref().map(|b| b.as_ref())
-    }
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> std::result::Result<(), fmt::Error> {
-        match self.inner.as_ref() {
-            Some(e) => e.fmt(f),
-            None => f.write_str("Unknown error"),
+    fn cause(&self) -> Option<&dyn StdError> {
+        match self.kind {
+            ErrorKind::InvalidHost { ref err, .. } => Some(err),
+            ErrorKind::Http { ref err } => Some(err),
+            ErrorKind::CannotParseResponseJson { ref err, .. } => Some(err),
+            _ => None,
         }
     }
 }
 
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> StdResult<(), fmt::Error> {
+        match self.kind {
+            ErrorKind::InvalidHost { ref url, .. } => {
+                f.write_str(&format!("Invalid Prometheus host '{}'", url)) // FIXME: print err
+            },
+            ErrorKind::Http { ref err } => err.fmt(f),
+            ErrorKind::InvalidApiUrl { ref url, ref err } =>  {
+                f.write_str(&format!("Cannot build url '{}'", url)) // FIXME: print err
+            },
+            ErrorKind::CannotParseResponseJson { ref err, .. } => err.fmt(f),
+            ErrorKind::Other(ref s) => f.write_str(&s),
+            _ => unreachable!("unexpected match arm!"),
+        }
+    }
+}
+
+pub(crate) fn new_invalid_host_error<S: Into<String>>(url: S, err: url::ParseError) -> Error {
+    Error {
+        kind: ErrorKind::InvalidHost {
+            url: url.into(),
+            err,
+        },
+    }
+}
+
 impl From<hyper::Error> for Error {
-    fn from(e: hyper::Error) -> Self {
+    fn from(err: hyper::Error) -> Self {
         Error {
-            inner: Some(Box::new(e)),
+            kind: ErrorKind::Http { err },
         }
     }
 }
 
 impl From<serde_json::Error> for Error {
-    fn from(e: serde_json::Error) -> Self {
+    fn from(err: serde_json::Error) -> Self {
         Error {
-            inner: Some(Box::new(e)),
-        }
-    }
-}
-
-impl From<url::ParseError> for Error {
-    fn from(e: url::ParseError) -> Self {
-        Error {
-            inner: Some(Box::new(e)),
+            kind: ErrorKind::CannotParseResponseJson { err },
         }
     }
 }
 
 impl From<uri::InvalidUri> for Error {
-    fn from(e: uri::InvalidUri) -> Self {
+    fn from(err: uri::InvalidUri) -> Self {
         Error {
-            inner: Some(Box::new(e)),
+            kind: ErrorKind::InvalidApiUrl { url: err.to_string(), err },
         }
     }
 }
 
-impl From<native_tls::Error> for Error {
-    fn from(e: native_tls::Error) -> Self {
+impl From<&str> for Error {
+    fn from(s: &str) -> Self {
         Error {
-            inner: Some(Box::new(e)),
+            kind: ErrorKind::Other(s.to_owned()),
         }
     }
 }
 
-impl From<http::Error> for Error {
-    fn from(e: http::Error) -> Self {
+impl From<String> for Error {
+    fn from(s: String) -> Self {
         Error {
-            inner: Some(Box::new(e)),
+            kind: ErrorKind::Other(s),
         }
     }
 }
-
-pub type Result<T> = std::result::Result<T, Error>;

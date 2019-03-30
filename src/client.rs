@@ -26,12 +26,14 @@ use hyper_tls::HttpsConnector;
 use serde_json;
 use url::Url;
 
+use crate::error::new_invalid_host_error;
 use crate::messages::ApiResult;
 use crate::Result;
 
 // TODO: query_timeout function
 
-// TODO: replace Step with plain duration
+// TODO: replace Step with plain duration once it supports f64 output
+// ref: https://github.com/rust-lang/rust/issues/54361
 pub enum Step {
     Seconds(f64),
     Duration(Duration),
@@ -41,20 +43,21 @@ pub type HyperHttpsConnector = HttpsConnector<HttpConnector>;
 
 pub struct PromClient<T: hyper::client::connect::Connect + 'static> {
     client: Client<T, Body>,
-    hostname: Url,
+    host: Url,
     query_timeout: Option<Duration>,
 }
 
 impl PromClient<HyperHttpsConnector> {
     pub fn new_https(
-        hostname: &str,
+        host: &str,
         query_timeout: Option<Duration>,
     ) -> Result<PromClient<HyperHttpsConnector>> {
-        let hostname = Url::from_str(hostname)?;
-        let https = HttpsConnector::new(4)?;
+        let host = Url::from_str(host).map_err(|e| new_invalid_host_error(host, e))?;
+        // Explicitly unwrapping here because this library is unusable if you can't build an HTTPS connection pool
+        let https = HttpsConnector::new(4).expect("Cannot build HTTPS connection pool");
         Ok(PromClient {
             client: Client::builder().keep_alive(true).build(https),
-            hostname,
+            host,
             query_timeout,
         })
     }
@@ -67,20 +70,19 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         at: Option<DateTime<Utc>>,
     ) -> Result<ApiResult> {
         // interesting: when there were problems with the await macro it flagged the wrong line
-        let u = self.instant_query_uri(&query, at)?;
-        await!(self.make_prometheus_api_call(u))
-    }
-
-    fn instant_query_uri(&self, query: &str, at: Option<DateTime<Utc>>) -> Result<Uri> {
-        let mut u = self.hostname.clone().join("/api/v1/query")?;
-        {
-            let mut serializer = u.query_pairs_mut();
-            serializer.append_pair("query", query);
-            at.map(|t| serializer.append_pair("time", t.to_rfc3339().as_str()));
-            self.query_timeout
-                .map(|d| serializer.append_pair("timeout", &d.as_secs().to_string()));
+        let mut u = self.api_call_base_url("/api/v1/query");
+        u.query_pairs_mut().append_pair("query", &query);
+        if let Some(t) = at {
+            u.query_pairs_mut()
+                .append_pair("time", t.to_rfc3339().as_str());
         }
-        Uri::from_str(u.as_str()).map_err(From::from)
+        if let Some(t) = self.query_timeout {
+            u.query_pairs_mut()
+                .append_pair("timeout", &t.as_secs().to_string());
+        }
+        let u = Uri::from_str(u.as_str())?;
+
+        await!(self.make_http_get_api_call(u))
     }
 
     pub async fn range_query(
@@ -90,42 +92,24 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         end: DateTime<Utc>,
         step: Step,
     ) -> Result<ApiResult> {
-        let u = self.range_query_uri(query, start, end, step)?;
-        await!(self.make_prometheus_api_call(u))
-    }
-
-    fn range_query_uri(
-        &self,
-        query: String,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-        step: Step,
-    ) -> Result<Uri> {
-        let mut u = self.hostname.clone().join("/api/v1/query_range")?;
-
-        {
-            let mut serializer = u.query_pairs_mut();
-
-            serializer.append_pair("query", &query);
-
-            let start = start.to_rfc3339().to_string();
-            serializer.append_pair("start", &start);
-
-            let end = end.to_rfc3339().to_string();
-            serializer.append_pair("end", &end);
-
-            let step: String = match step {
-                Step::Seconds(f) => f.to_string(),
-                Step::Duration(d) => format!("{}s", d.as_secs().to_string()),
-            };
-            serializer.append_pair("step", &step);
-
-            if let Some(t) = self.query_timeout {
-                serializer.append_pair("timeout", &t.as_secs().to_string());
-            }
+        let mut u = self.api_call_base_url("/api/v1/query_range");
+        u.query_pairs_mut().append_pair("query", &query);
+        u.query_pairs_mut()
+            .append_pair("start", &start.to_rfc3339().to_string());
+        u.query_pairs_mut()
+            .append_pair("end", &end.to_rfc3339().to_string());
+        let step: String = match step {
+            Step::Seconds(f) => f.to_string(),
+            Step::Duration(d) => format!("{}s", d.as_secs().to_string()),
+        };
+        u.query_pairs_mut().append_pair("step", &step);
+        if let Some(t) = self.query_timeout {
+            u.query_pairs_mut()
+                .append_pair("timeout", &t.as_secs().to_string());
         }
+        let u = Uri::from_str(u.as_str())?;
 
-        Uri::from_str(u.as_str()).map_err(From::from)
+        await!(self.make_http_get_api_call(u))
     }
 
     pub async fn series(
@@ -134,75 +118,62 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<ApiResult> {
-        let u = self.series_uri(selectors, start, end)?;
-        await!(self.make_prometheus_api_call(u))
-    }
-
-    fn series_uri(
-        &self,
-        selectors: Vec<String>,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-    ) -> Result<Uri> {
-        let mut u = self.hostname.clone().join("/api/v1/series")?;
-
-        {
-            let mut serializer = u.query_pairs_mut();
-
-            for s in selectors {
-                serializer.append_pair("match[]", &s);
-            }
-
-            let start = start.to_rfc3339().to_string();
-            serializer.append_pair("start", &start);
-
-            let end = end.to_rfc3339().to_string();
-            serializer.append_pair("end", &end);
-
-            if let Some(t) = self.query_timeout {
-                serializer.append_pair("timeout", &t.as_secs().to_string());
-            }
+        let mut u = self.api_call_base_url("/api/v1/series");
+        for s in selectors {
+            u.query_pairs_mut().append_pair("match[]", &s);
         }
+        u.query_pairs_mut()
+            .append_pair("start", &start.to_rfc3339().to_string());
+        u.query_pairs_mut()
+            .append_pair("end", &end.to_rfc3339().to_string());
+        if let Some(t) = self.query_timeout {
+            u.query_pairs_mut()
+                .append_pair("timeout", &t.as_secs().to_string());
+        }
+        let u = Uri::from_str(u.as_str())?;
 
-        Uri::from_str(u.as_str()).map_err(From::from)
+        await!(self.make_http_get_api_call(u))
     }
 
     pub async fn label_names(&mut self) -> Result<ApiResult> {
-        let u = self.hostname.clone().join("/api/v1/labels")?;
+        let u = self.api_call_base_url("/api/v1/labels");
         let u = Uri::from_str(u.as_str())?;
-        await!(self.make_prometheus_api_call(u))
+        await!(self.make_http_get_api_call(u))
     }
 
     pub async fn label_values(&mut self, label_name: String) -> Result<ApiResult> {
-        let path = format!("/api/v1/{}/values", label_name);
-        let u = self.hostname.clone().join(&path)?;
+        let u = self.api_call_base_url(&format!("/api/v1/{}/values", label_name));
         let u = Uri::from_str(u.as_str())?;
-        await!(self.make_prometheus_api_call(u))
+        await!(self.make_http_get_api_call(u))
     }
 
-    async fn make_prometheus_api_call(&mut self, u: Uri) -> Result<ApiResult> {
+    pub async fn targets(&mut self) -> Result<ApiResult> {
+        let u = self.api_call_base_url("/api/v1/targets");
+        let u = Uri::from_str(u.as_str())?;
+        await!(self.make_http_get_api_call(u))
+    }
+
+    pub async fn alert_managers(&mut self) -> Result<ApiResult> {
+        let u = self.api_call_base_url("/api/v1/alertmanagers");
+        let u = Uri::from_str(u.as_str())?;
+        await!(self.make_http_get_api_call(u))
+    }
+
+    pub async fn flags(&mut self) -> Result<ApiResult> {
+        let u = self.api_call_base_url("/api/v1/flags");
+        let u = Uri::from_str(u.as_str())?;
+        await!(self.make_http_get_api_call(u))
+    }
+
+    async fn make_http_get_api_call(&mut self, u: Uri) -> Result<ApiResult> {
         let resp = await!(self.client.get(u).compat())?;
         let body = await!(resp.into_body().concat2().compat())?;
         serde_json::from_slice::<ApiResult>(&body).map_err(From::from)
     }
 
-    pub async fn targets(&mut self) -> Result<ApiResult> {
-        let u = self.hostname.clone().join("/api/v1/targets")?;
-        let u = Uri::from_str(u.as_str())?;
-        await!(self.make_prometheus_api_call(u))
-    }
-
-    pub async fn alert_managers(&mut self) -> Result<ApiResult> {
-        let u = self.hostname.clone().join("/api/v1/alertmanagers")?;
-        let u = Uri::from_str(u.as_str())?;
-        await!(self.make_prometheus_api_call(u))
-    }
-
-    pub async fn flags(&mut self) -> Result<ApiResult> {
-        let u = self.hostname.clone().join("/api/v1/flags")?;
-        let u = Uri::from_str(u.as_str())?;
-        await!(self.make_prometheus_api_call(u))
-    }
+    //
+    // TSDB Admin APIs
+    //
 
     pub async fn delete_series(
         &mut self,
@@ -210,62 +181,60 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         start: Option<DateTime<Utc>>,
         end: Option<DateTime<Utc>>,
     ) -> Result<ApiResult> {
-        let u = self.delete_series_uri(series, start, end)?;
+        let mut u = self.api_call_base_url("/api/v1/admin/tsdb/delete_series");
+        for s in series {
+            u.query_pairs_mut().append_pair("match[]", &s);
+        }
+        if let Some(start) = start {
+            u.query_pairs_mut()
+                .append_pair("start", &start.to_rfc3339().to_string());
+        }
+        if let Some(end) = end {
+            u.query_pairs_mut()
+                .append_pair("end", &end.to_rfc3339().to_string());
+        }
+        if let Some(t) = self.query_timeout {
+            u.query_pairs_mut()
+                .append_pair("timeout", &t.as_secs().to_string());
+        }
+        let u = Uri::from_str(u.as_str())?;
 
-        let post = Request::post(u).body(Body::empty())?;
+        // Explicitly unwrapping here because this shouldn't fail,
+        // and there's nothing a user can do if it does. this failure
+        // is because of a library bug, not because of their input
+        let post = Request::post(u)
+            .body(Body::empty())
+            .expect("Failed to construct 'delete_series' POST with an empty body");
+
         let resp = await!(self.client.request(post).compat())?;
         let body = await!(resp.into_body().concat2().compat())?;
         serde_json::from_slice::<ApiResult>(&body).map_err(From::from)
-    }
-
-    fn delete_series_uri(
-        &self,
-        series: Vec<String>,
-        start: Option<DateTime<Utc>>,
-        end: Option<DateTime<Utc>>,
-    ) -> Result<Uri> {
-        let mut u = self
-            .hostname
-            .clone()
-            .join("/api/v1/admin/tsdb/delete_series")?;
-
-        {
-            let mut serializer = u.query_pairs_mut();
-
-            for s in series {
-                serializer.append_pair("match[]", &s);
-            }
-
-            if let Some(start) = start {
-                let start = start.to_rfc3339().to_string();
-                serializer.append_pair("start", &start);
-            }
-
-            if let Some(end) = end {
-                let end = end.to_rfc3339().to_string();
-                serializer.append_pair("end", &end);
-            }
-
-            if let Some(t) = self.query_timeout {
-                serializer.append_pair("timeout", &t.as_secs().to_string());
-            }
-        }
-
-        Uri::from_str(u.as_str()).map_err(From::from)
     }
 
     pub async fn clean_tombstones(&mut self) -> Result<ApiResult> {
-        let u = self
-            .hostname
-            .clone()
-            .join("/api/v1/admin/tsdb/clean_tombstones")?;
+        let u = self.api_call_base_url("/api/v1/admin/tsdb/clean_tombstones");
         let u = Uri::from_str(u.as_str())?;
 
-        let post = Request::post(u).body(Body::empty())?;
+        // Explicitly unwrapping here because this shouldn't fail,
+        // and there's nothing a user can do if it does. this failure
+        // is because of a library bug, not because of their input
+        let post = Request::post(u)
+            .body(Body::empty())
+            .expect("Failed to construct 'clean_tombstones' POST with empty body");
 
         let resp = await!(self.client.request(post).compat())?;
         let body = await!(resp.into_body().concat2().compat())?;
         serde_json::from_slice::<ApiResult>(&body).map_err(From::from)
+    }
+
+    fn api_call_base_url(&self, api_path: &str) -> Url {
+        // Explicitly unwrapping here because we should be able
+        // to join an already-verified Prometheus hostname with
+        // precanned valid path fragments
+        self.host
+            .clone()
+            .join(api_path)
+            .expect(&format!("Cannot create API url with path '{}'", api_path))
     }
 }
 

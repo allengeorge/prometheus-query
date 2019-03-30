@@ -33,7 +33,7 @@ The following commands are supported by the library:
 
 - [x] Delete series
 - [ ] Snapshot
-- [ ] Clean tombstones
+- [X] Clean tombstones
 
 ## CLI
 
