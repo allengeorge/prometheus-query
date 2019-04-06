@@ -26,9 +26,8 @@ use hyper_tls::HttpsConnector;
 use serde_json;
 use url::Url;
 
-use crate::error::new_invalid_host_error;
 use crate::messages::ApiResult;
-use crate::Result;
+use crate::{Error, Result};
 
 // TODO: query_timeout function
 
@@ -52,7 +51,7 @@ impl PromClient<HyperHttpsConnector> {
         host: &str,
         query_timeout: Option<Duration>,
     ) -> Result<PromClient<HyperHttpsConnector>> {
-        let host = Url::from_str(host).map_err(|e| new_invalid_host_error(host, e))?;
+        let host = Url::from_str(host).map_err(|e| Error::new_invalid_host_error(host, e))?;
         // Explicitly unwrapping here because this library is unusable if you can't build an HTTPS connection pool
         let https = HttpsConnector::new(4).expect("Cannot build HTTPS connection pool");
         Ok(PromClient {

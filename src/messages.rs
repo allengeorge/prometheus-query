@@ -35,10 +35,15 @@ const PROM_NEGATIVE_INFINITY: &str = "-Inf";
 
 const PROM_NAN: &str = "NaN";
 
+// FIXME: test all serializations
+// FIXME: create convenience functions
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase", tag = "status")]
+#[serde(tag = "status")]
 pub enum ApiResult {
+    #[serde(rename = "success")]
     ApiOk(ApiOk),
+    #[serde(rename = "error")]
     ApiErr(ApiErr),
 }
 
@@ -74,10 +79,12 @@ impl Display for ApiErr {
 #[serde(untagged)]
 pub enum Data {
     Expression(Expression),
-    Series(Vec<Metric>),
-    LabelsOrValues(Vec<String>),
+    Series(Series),
+    LabelsOrValues(LabelsOrValues),
     Targets(Targets),
     AlertManagers(AlertManagers),
+    Snapshot(Snapshot),
+    Config(Config),
     Flags(HashMap<String, String>),
 }
 
@@ -224,6 +231,12 @@ impl Serialize for StringSample {
         s.end()
     }
 }
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct Series(Vec<Metric>);
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct LabelsOrValues(Vec<String>);
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -396,16 +409,28 @@ impl Serialize for AlertManager {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct Snapshot {
+    name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct Config {
+    yaml: String,
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::result::Result as StdResult;
 
     use chrono::{DateTime, FixedOffset};
     use url::Url;
 
     use crate::messages::{
-        ActiveTarget, AlertManager, AlertManagers, ApiErr, ApiOk, ApiResult, Data, DroppedTarget,
-        Expression, Instant, Metric, Range, Sample, StringSample, TargetHealth, Targets,
+        ActiveTarget, AlertManager, AlertManagers, ApiErr, ApiOk, ApiResult, Config, Data,
+        DroppedTarget, Expression, Instant, LabelsOrValues, Metric, Range, Sample, Series,
+        Snapshot, StringSample, TargetHealth, Targets,
     };
 
     #[test]
@@ -794,7 +819,7 @@ mod tests {
         let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
             ApiResult::ApiOk(ApiOk {
-                data: Some(Data::LabelsOrValues(vec![
+                data: Some(Data::LabelsOrValues(LabelsOrValues(vec![
                     "__name__".to_owned(),
                     "call".to_owned(),
                     "code".to_owned(),
@@ -816,7 +841,7 @@ mod tests {
                     "scrape_job".to_owned(),
                     "slice".to_owned(),
                     "version".to_owned(),
-                ],)),
+                ]))),
                 warnings: Vec::new(),
             }),
             res
@@ -840,10 +865,69 @@ mod tests {
         let res = serde_json::from_str::<ApiResult>(j)?;
         assert_eq!(
             ApiResult::ApiOk(ApiOk {
-                data: Some(Data::LabelsOrValues(vec![
+                data: Some(Data::LabelsOrValues(LabelsOrValues(vec![
                     "node".to_owned(),
                     "prometheus".to_owned(),
-                ],)),
+                ]))),
+                warnings: Vec::new(),
+            }),
+            res
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn should_deserialize_json_prom_series() -> StdResult<(), std::io::Error> {
+        let j = r#"
+        {
+            "status" : "success",
+            "data" : [
+                {
+                    "__name__" : "up",
+                    "job" : "prometheus",
+                    "instance" : "localhost:9090"
+                },
+                {
+                    "__name__" : "up",
+                    "job" : "node",
+                    "instance" : "localhost:9091"
+                },
+                {
+                    "__name__" : "process_start_time_seconds",
+                    "job" : "prometheus",
+                    "instance" : "localhost:9090"
+                }
+            ]
+        }
+        "#;
+
+        let mut metric_1: HashMap<String, String> = HashMap::new();
+        metric_1.insert("__name__".to_owned(), "up".to_owned());
+        metric_1.insert("job".to_owned(), "prometheus".to_owned());
+        metric_1.insert("instance".to_owned(), "localhost:9090".to_owned());
+
+        let mut metric_2: HashMap<String, String> = HashMap::new();
+        metric_2.insert("__name__".to_owned(), "up".to_owned());
+        metric_2.insert("job".to_owned(), "node".to_owned());
+        metric_2.insert("instance".to_owned(), "localhost:9091".to_owned());
+
+        let mut metric_3: HashMap<String, String> = HashMap::new();
+        metric_3.insert(
+            "__name__".to_owned(),
+            "process_start_time_seconds".to_owned(),
+        );
+        metric_3.insert("job".to_owned(), "prometheus".to_owned());
+        metric_3.insert("instance".to_owned(), "localhost:9090".to_owned());
+
+        let res = serde_json::from_str::<ApiResult>(j)?;
+        assert_eq!(
+            ApiResult::ApiOk(ApiOk {
+                data: Some(Data::Series(Series(vec![
+                    Metric { labels: metric_1 },
+                    Metric { labels: metric_2 },
+                    Metric { labels: metric_3 },
+                ]))),
                 warnings: Vec::new(),
             }),
             res
@@ -1009,6 +1093,86 @@ mod tests {
             }),
             res
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn should_deserialize_json_prom_snapshot() -> StdResult<(), std::io::Error> {
+        let j = r#"
+        {
+            "status": "success",
+            "data": {
+                "name": "20171210T211224Z-2be650b6d019eb54"
+            }
+        }
+        "#;
+
+        let res = serde_json::from_str::<ApiResult>(j)?;
+        assert_eq!(
+            ApiResult::ApiOk(ApiOk {
+                data: Some(Data::Snapshot(Snapshot {
+                    name: "20171210T211224Z-2be650b6d019eb54".to_owned()
+                })),
+                warnings: Vec::new(),
+            }),
+            res
+        );
+
+        Ok(())
+    }
+
+    // FIXME: make this an actual test
+    #[test]
+    fn should_serialize_rust_prom_snapshot() -> StdResult<(), std::io::Error> {
+        let s = serde_json::to_string_pretty(&ApiResult::ApiOk(ApiOk {
+            data: Some(Data::Snapshot(Snapshot {
+                name: "20171210T211224Z-2be650b6d019eb54".to_owned(),
+            })),
+            warnings: Vec::new(),
+        }))?;
+
+        dbg!(s);
+
+        Ok(())
+    }
+
+    #[test]
+    fn should_deserialize_json_prom_config() -> StdResult<(), std::io::Error> {
+        let j = r#"
+        {
+            "status": "success",
+            "data": {
+                "yaml": "CONTENT"
+            }
+        }
+        "#;
+
+        let res = serde_json::from_str::<ApiResult>(j)?;
+        assert_eq!(
+            ApiResult::ApiOk(ApiOk {
+                data: Some(Data::Config(Config {
+                    yaml: "CONTENT".to_owned()
+                })),
+                warnings: Vec::new(),
+            }),
+            res
+        );
+
+        Ok(())
+    }
+
+    // FIXME: make this an actual test
+    #[test]
+    fn should_serialize_rust_prom_config() -> StdResult<(), std::io::Error> {
+        let s = serde_json::to_string_pretty(&ApiResult::ApiOk(ApiOk {
+            data: Some(Data::Config(Config {
+                yaml: "CONTENT".to_owned(),
+            })),
+            warnings: Vec::new(),
+        }))?;
+
+        dbg!(s);
 
         Ok(())
     }

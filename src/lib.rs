@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Async interface to the [Prometheus HTTP V1 API](https://prometheus.io/docs/prometheus/latest/querying/api/).
+//! This crate allows you to query a Prometheus server to drive tools
+//! like CLIs etc. It uses **nightly-only** `async`/`await`, and `futures`.
+
 #![feature(custom_attribute)]
 #![feature(futures_api, async_await, await_macro)]
 
@@ -21,3 +25,5 @@ pub use error::{Error, Result};
 mod client;
 mod error;
 pub mod messages;
+
+// FIXME: remove need to have 'to_owned()' everywhere

@@ -29,31 +29,45 @@ use url;
 /// Type alias for `Result<T, prometheus_query::Error>`
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Represents errors that can occur while making queries to Prometheus.
 #[derive(Debug)]
 pub struct Error {
     kind: ErrorKind,
 }
 
+/// High-level error categories. New categories may be added later.
 #[derive(Debug)]
 pub enum ErrorKind {
+    /// Invalid Prometheus host URL.
     InvalidHost {
+        /// String that could not be parsed into a valid URL.
         url: String,
+        /// Underlying error type.
         err: url::ParseError,
     },
+    /// Invalid Prometheus API call URL.
+    /// This _could_ happen because of arguments that cannot be
+    /// encoded into the URL path fragment or query parameters.
     InvalidApiUrl {
+        /// String that could not be parsed into a valid URL.
         url: String,
+        /// Underlying error type.
         err: uri::InvalidUri,
     },
+    /// General HTTP client error.
+    /// Triggered when making HTTP requests to, or reading responses from Prometheus.
     Http {
+        /// Underlying error type.
         err: hyper::Error,
     },
-    CannotParseResponseJson {
-        // FIXME: add API call name
+    /// API response JSON-parsing error.
+    /// Triggered when the library cannot parse the API response from Prometheus.
+    InvalidResponseJson {
+        /// TODO: include the full API url for which this error is occurring
+        /// Underlying error type.
         err: serde_json::Error,
     },
-    Other(String),
-
-    /// Destructing should not be exhaustive.
+    /// Destructuring should not be exhaustive.
     ///
     /// This enum may grow additional variants, so this makes sure clients
     /// won't break as additional variants are added.
@@ -66,8 +80,8 @@ impl std::error::Error for Error {
         match self.kind {
             ErrorKind::InvalidHost { ref err, .. } => Some(err),
             ErrorKind::Http { ref err } => Some(err),
-            ErrorKind::CannotParseResponseJson { ref err, .. } => Some(err),
-            _ => None,
+            ErrorKind::InvalidResponseJson { ref err, .. } => Some(err),
+            _ => unreachable!("unexpected match arm!"),
         }
     }
 }
@@ -76,25 +90,27 @@ impl Display for Error {
     fn fmt(&self, f: &mut Formatter) -> StdResult<(), fmt::Error> {
         match self.kind {
             ErrorKind::InvalidHost { ref url, .. } => {
-                f.write_str(&format!("Invalid Prometheus host '{}'", url)) // FIXME: print err
-            },
+                f.write_str(&format!("Invalid Prometheus host '{}'", url))
+            }
             ErrorKind::Http { ref err } => err.fmt(f),
-            ErrorKind::InvalidApiUrl { ref url, ref err } =>  {
-                f.write_str(&format!("Cannot build url '{}'", url)) // FIXME: print err
-            },
-            ErrorKind::CannotParseResponseJson { ref err, .. } => err.fmt(f),
-            ErrorKind::Other(ref s) => f.write_str(&s),
+            ErrorKind::InvalidApiUrl { ref url, .. } => {
+                f.write_str(&format!("Invalid API url '{}'", url))
+            }
+            ErrorKind::InvalidResponseJson { ref err, .. } => err.fmt(f),
             _ => unreachable!("unexpected match arm!"),
         }
     }
 }
 
-pub(crate) fn new_invalid_host_error<S: Into<String>>(url: S, err: url::ParseError) -> Error {
-    Error {
-        kind: ErrorKind::InvalidHost {
-            url: url.into(),
-            err,
-        },
+// TODO: include new_ functions for all error types
+impl Error {
+    pub(crate) fn new_invalid_host_error<S: Into<String>>(url: S, err: url::ParseError) -> Error {
+        Error {
+            kind: ErrorKind::InvalidHost {
+                url: url.into(),
+                err,
+            },
+        }
     }
 }
 
@@ -109,7 +125,7 @@ impl From<hyper::Error> for Error {
 impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Self {
         Error {
-            kind: ErrorKind::CannotParseResponseJson { err },
+            kind: ErrorKind::InvalidResponseJson { err },
         }
     }
 }
@@ -117,23 +133,10 @@ impl From<serde_json::Error> for Error {
 impl From<uri::InvalidUri> for Error {
     fn from(err: uri::InvalidUri) -> Self {
         Error {
-            kind: ErrorKind::InvalidApiUrl { url: err.to_string(), err },
-        }
-    }
-}
-
-impl From<&str> for Error {
-    fn from(s: &str) -> Self {
-        Error {
-            kind: ErrorKind::Other(s.to_owned()),
-        }
-    }
-}
-
-impl From<String> for Error {
-    fn from(s: String) -> Self {
-        Error {
-            kind: ErrorKind::Other(s),
+            kind: ErrorKind::InvalidApiUrl {
+                url: err.to_string(),
+                err,
+            },
         }
     }
 }
