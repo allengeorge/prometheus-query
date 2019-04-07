@@ -30,6 +30,7 @@ use crate::messages::ApiResult;
 use crate::{Error, Result};
 
 // TODO: query_timeout function
+// TODO: use ToStr where possible
 
 // TODO: replace Step with plain duration once it supports f64 output
 // ref: https://github.com/rust-lang/rust/issues/54361
@@ -65,7 +66,7 @@ impl PromClient<HyperHttpsConnector> {
 impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
     pub async fn instant_query(
         &mut self,
-        query: String, // FIXME: turn into &str
+        query: String,
         at: Option<DateTime<Utc>>,
     ) -> Result<ApiResult> {
         // interesting: when there were problems with the await macro it flagged the wrong line
@@ -158,8 +159,14 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         await!(self.make_http_get_api_call(u))
     }
 
+    pub async fn config(&mut self) -> Result<ApiResult> {
+        let u = self.api_call_base_url("/api/v1/status/config");
+        let u = Uri::from_str(u.as_str())?;
+        await!(self.make_http_get_api_call(u))
+    }
+
     pub async fn flags(&mut self) -> Result<ApiResult> {
-        let u = self.api_call_base_url("/api/v1/flags");
+        let u = self.api_call_base_url("/api/v1/status/flags");
         let u = Uri::from_str(u.as_str())?;
         await!(self.make_http_get_api_call(u))
     }
@@ -210,6 +217,23 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
         serde_json::from_slice::<ApiResult>(&body).map_err(From::from)
     }
 
+    pub async fn snapshot(&mut self, skip_head: bool) -> Result<ApiResult> {
+        let mut u = self.api_call_base_url("/api/v1/admin/tsdb/snapshot");
+        u.query_pairs_mut().append_pair("skip_head", &skip_head.to_string());
+        let u = Uri::from_str(u.as_str())?;
+
+        // Explicitly unwrapping here because this shouldn't fail,
+        // and there's nothing a user can do if it does. this failure
+        // is because of a library bug, not because of their input
+        let post = Request::post(u)
+            .body(Body::empty())
+            .expect("Failed to construct 'snapshot' POST with empty body");
+
+        let resp = await!(self.client.request(post).compat())?;
+        let body = await!(resp.into_body().concat2().compat())?;
+        serde_json::from_slice::<ApiResult>(&body).map_err(From::from)
+    }
+
     pub async fn clean_tombstones(&mut self) -> Result<ApiResult> {
         let u = self.api_call_base_url("/api/v1/admin/tsdb/clean_tombstones");
         let u = Uri::from_str(u.as_str())?;
@@ -236,6 +260,3 @@ impl<T: hyper::client::connect::Connect + 'static> PromClient<T> {
             .expect(&format!("Cannot create API url with path '{}'", api_path))
     }
 }
-
-//fn config() -> impl Future {}
-//fn snapshot() -> impl Future {}

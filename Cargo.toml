@@ -1,6 +1,6 @@
 [package]
 name = "prometheus-query"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Allen George <allen.george@gmail.com>"]
 edition = "2018"
 description = "Prometheus HTTP query client"

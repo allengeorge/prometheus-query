@@ -23,7 +23,7 @@ The following query types are supported by the library:
 - [x] Targets
 - [x] Alertmanagers
 - [x] Status
-- [ ] Config
+- [x] Config
 - [x] Flags
 
 
@@ -32,7 +32,7 @@ The following query types are supported by the library:
 The following commands are supported by the library:
 
 - [x] Delete series
-- [ ] Snapshot
+- [x] Snapshot
 - [X] Clean tombstones
 
 ## CLI

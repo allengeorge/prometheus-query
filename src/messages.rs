@@ -67,7 +67,11 @@ pub struct ApiErr {
     pub warnings: Vec<String>,
 }
 
-impl Error for ApiErr {}
+impl Error for ApiErr {
+    fn description(&self) -> &str {
+        &self.error_message
+    }
+}
 
 impl Display for ApiErr {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
@@ -83,8 +87,14 @@ pub enum Data {
     LabelsOrValues(LabelsOrValues),
     Targets(Targets),
     AlertManagers(AlertManagers),
-    Snapshot(Snapshot),
     Config(Config),
+    Snapshot(Snapshot),
+    // IMPORTANT: this must *always* be the final variant.
+    // For untagged enums serde will attempt deserialization using
+    // each variant in order and accept the first one that is successful.
+    // Since `Flags` is a map, it captures any other map-like
+    // types, including `Config`, `Snapshot`, etc. To give those
+    // variants a chance to be matches this variant must be the last
     Flags(HashMap<String, String>),
 }
 
