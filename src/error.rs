@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Defines errors that can occur in making API calls to Prometheus.
+
 use std::convert::From;
 use std::error::Error as StdError;
 use std::result::Result as StdResult;
@@ -104,6 +106,7 @@ impl Display for Error {
 
 // TODO: include new_ functions for all error types
 impl Error {
+    /// Create a new [Error::InvalidHost].
     pub(crate) fn new_invalid_host_error<S: Into<String>>(url: S, err: url::ParseError) -> Error {
         Error {
             kind: ErrorKind::InvalidHost {
@@ -111,6 +114,11 @@ impl Error {
                 err,
             },
         }
+    }
+
+    /// Return the specific error type.
+    pub fn kind(&self) -> &ErrorKind {
+        &self.kind
     }
 }
 
