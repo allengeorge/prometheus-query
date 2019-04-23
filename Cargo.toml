@@ -1,6 +1,6 @@
 [package]
 name = "prometheus-query"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Allen George <allen.george@gmail.com>"]
 edition = "2018"
 description = "Prometheus HTTP query client"
@@ -13,8 +13,8 @@ keywords = ["prometheus", "metrics"]
 chrono = { version = "0.4", features = ["serde"] }
 clap = "2"
 futures-stable = { version = "0.1", package = "futures" }
-futures-preview = { version = "0.3.0-alpha.13", features = ["compat"] }
-futures-util-preview = { version = "0.3.0-alpha.13"}
+futures-preview = { version = "0.3.0-alpha.14", features = ["compat"] }
+futures-util-preview = { version = "0.3.0-alpha.14"}
 http = "0.1"
 hyper = "0.12"
 hyper-tls = "0.3"
