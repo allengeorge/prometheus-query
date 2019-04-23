@@ -41,6 +41,7 @@ pub enum Step {
 
 pub type HyperHttpsConnector = HttpsConnector<HttpConnector>;
 
+// FIXME: why am I exposing the underlying connection type?
 pub struct PromClient<T: hyper::client::connect::Connect + 'static> {
     client: Client<T, Body>,
     host: Url,
